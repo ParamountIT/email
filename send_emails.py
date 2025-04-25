@@ -21,7 +21,7 @@ SUBJECT_TEMPLATE = "Let’s Make {event} Unforgettable — Your Photography Part
 
 # Load HTML template
 try:
-    with open("./templates/team_aretas_template.html", "r", encoding="utf-8") as f:
+    with open("./templates/LEAD-team-aretas.html", "r", encoding="utf-8") as f:
         html_template = f.read()
 except Exception as e:
     print(f"Error reading HTML template: {e}")
