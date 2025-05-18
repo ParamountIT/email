@@ -121,7 +121,6 @@ Thumbs.db
 #email lists
 /addresses
 
-# gymnastics
-/scrape/gymnastics/source/
-
+# scrape data
+/scrape/
 
