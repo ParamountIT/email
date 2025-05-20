@@ -1,3 +1,36 @@
 # Testing
-- Unit tests should always be written first with clear acceptance criteria and clarity on all the different use cases or scenarios
-- documentation of the test sceanrios must be in place and updated with any change
+- Unit tests should always be written first with clear acceptance criteria and clarity on all the different
+  use cases or scenarios
+- Documentation of the test scenarios must be in place and updated with any change
+
+# General
+- Break changes down to small pieces, only make one change at a time, validate before making another
+  change
+
+# Lambda Development
+- For Python or any other programming language, always prioritize using standard libraries to avoid
+  having to package up dependencies
+- Only use external libraries if there is significant complexity with using the standard functions or
+  there is no capability in the standard option
+- ARN of S3 bucket to hold the deployment package is arn:aws:s3:::riseportraits-lambda-deployment
+- Python version for Lambda is 3.12
+
+# Deploying to AWS
+- All deployment must happen through a cloudformation tempalte that is /infrastructure/templates/email-sender.yaml
+- Always validate the cloudformation template before deploying
+- Stack name is email-sender
+
+# Default Lambda Environment Variables
+- SENDER_EMAIL: "contact@riseportraits.co.uk"
+- EMAIL_LIST_KEY: "test copy.csv"
+- EMAIL_SEND_LIMIT: "5"
+- SKIP_LIST_KEY: "skip.csv"
+- TEMPLATE_KEY: "LEAD-gymnastics.html"
+
+# Project Folder Structure
+- Lambda package folder is /lambda/package in this project
+- Lambda function source is in /lambda/src folder in this project
+- Lambda function deployment package is in /lambda/deployment.zip in this project
+- External depedencies are kept in /lambda/requirements.txt in this project
+
+
