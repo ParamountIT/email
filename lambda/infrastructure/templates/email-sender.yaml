@@ -1,0 +1,268 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template for Email Sender Lambda Function'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues:
+      - dev
+      - prod
+    Description: Environment name
+
+  SenderEmail:
+    Type: String
+    Default: contact@riseportraits.co.uk
+    Description: Sender email address for SES
+
+  EmailSendLimit:
+    Type: Number
+    Default: 5
+    Description: Maximum number of emails to send per execution
+
+  EmailListKey:
+    Type: String
+    Description: S3 key for the email list CSV file (e.g., 'lists/email-list.csv')
+    MinLength: 1
+
+  SkipListKey:
+    Type: String
+    Description: S3 key for the skip list CSV file (e.g., 'lists/skip-list.csv')
+    MinLength: 1
+
+  TemplateKey:
+    Type: String
+    Description: S3 key for the email template file (e.g., 'templates/email-template.html')
+    MinLength: 1
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, 'prod']
+
+Resources:
+  EmailListsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: riseportraits-email-lists
+    Metadata:
+      AWS::CloudFormation::Init:
+        config:
+          version: 1.0
+          resources:
+            S3Bucket:
+              properties:
+                BucketName: riseportraits-email-lists
+                VersioningConfiguration:
+                  Status: Enabled
+                PublicAccessBlockConfiguration:
+                  BlockPublicAcls: true
+                  BlockPublicPolicy: true
+                  IgnorePublicAcls: true
+                  RestrictPublicBuckets: true
+                BucketEncryption:
+                  ServerSideEncryptionConfiguration:
+                    - ServerSideEncryptionByDefault:
+                        SSEAlgorithm: AES256
+
+  EmailTemplatesBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: riseportraits-email-templates
+    Metadata:
+      AWS::CloudFormation::Init:
+        config:
+          version: 1.0
+          resources:
+            S3Bucket:
+              properties:
+                BucketName: riseportraits-email-templates
+                VersioningConfiguration:
+                  Status: Enabled
+                PublicAccessBlockConfiguration:
+                  BlockPublicAcls: true
+                  BlockPublicPolicy: true
+                  IgnorePublicAcls: true
+                  RestrictPublicBuckets: true
+                BucketEncryption:
+                  ServerSideEncryptionConfiguration:
+                    - ServerSideEncryptionByDefault:
+                        SSEAlgorithm: AES256
+
+  DeploymentBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: riseportraits-lambda-deployment
+    Metadata:
+      AWS::CloudFormation::Init:
+        config:
+          version: 1.0
+          resources:
+            S3Bucket:
+              properties:
+                BucketName: riseportraits-lambda-deployment
+                VersioningConfiguration:
+                  Status: Enabled
+                PublicAccessBlockConfiguration:
+                  BlockPublicAcls: true
+                  BlockPublicPolicy: true
+                  IgnorePublicAcls: true
+                  RestrictPublicBuckets: true
+                BucketEncryption:
+                  ServerSideEncryptionConfiguration:
+                    - ServerSideEncryptionByDefault:
+                        SSEAlgorithm: AES256
+
+  EmailSenderLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: EmailSenderLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${EmailListsBucket}'
+                  - !Sub 'arn:aws:s3:::${EmailTemplatesBucket}'
+                  - !Sub 'arn:aws:s3:::${EmailListsBucket}/*'
+                  - !Sub 'arn:aws:s3:::${EmailTemplatesBucket}/*'
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: '*'
+
+  EmailSenderLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'email-sender-${Environment}'
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt EmailSenderLambdaRole.Arn
+      Runtime: python3.12
+      Timeout: 300
+      MemorySize: 256
+      Environment:
+        Variables:
+          SENDER_EMAIL: !Ref SenderEmail
+          EMAIL_LIST_KEY: !Ref EmailListKey
+          SKIP_LIST_KEY: !Ref SkipListKey
+          TEMPLATE_KEY: !Ref TemplateKey
+          EMAIL_SEND_LIMIT: !Ref EmailSendLimit
+      Code:
+        S3Bucket: !Ref DeploymentBucket
+        S3Key: deployment-20240520-1.zip
+        S3ObjectVersion: !Ref 'AWS::NoValue'
+
+  # EventBridge Rules for Lambda Triggers
+  MorningTriggerRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub 'email-sender-morning-${Environment}'
+      Description: Trigger email sender at 8am UK time
+      ScheduleExpression: cron(0 8 * * ? *)  # 8am UTC (8am GMT, 9am BST)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt EmailSenderLambda.Arn
+          Id: EmailSenderMorning
+
+  MiddayTriggerRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub 'email-sender-midday-${Environment}'
+      Description: Trigger email sender at 11am UK time
+      ScheduleExpression: cron(0 11 * * ? *)  # 11am UTC (11am GMT, 12pm BST)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt EmailSenderLambda.Arn
+          Id: EmailSenderMidday
+
+  AfternoonTriggerRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub 'email-sender-afternoon-${Environment}'
+      Description: Trigger email sender at 4pm UK time
+      ScheduleExpression: cron(0 16 * * ? *)  # 4pm UTC (4pm GMT, 5pm BST)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt EmailSenderLambda.Arn
+          Id: EmailSenderAfternoon
+
+  # Permission for EventBridge to invoke Lambda
+  MorningTriggerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref EmailSenderLambda
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt MorningTriggerRule.Arn
+
+  MiddayTriggerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref EmailSenderLambda
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt MiddayTriggerRule.Arn
+
+  AfternoonTriggerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref EmailSenderLambda
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt AfternoonTriggerRule.Arn
+
+Outputs:
+  EmailListsBucketName:
+    Description: Name of the email lists bucket
+    Value: !Ref EmailListsBucket
+
+  EmailTemplatesBucketName:
+    Description: Name of the email templates bucket
+    Value: !Ref EmailTemplatesBucket
+
+  DeploymentBucketName:
+    Description: Name of the deployment bucket
+    Value: !Ref DeploymentBucket
+
+  LambdaFunctionName:
+    Description: Name of the Lambda function
+    Value: !Ref EmailSenderLambda
+
+  LambdaFunctionArn:
+    Description: ARN of the Lambda function
+    Value: !GetAtt EmailSenderLambda.Arn
+
+  LambdaRoleArn:
+    Description: ARN of the Lambda execution role
+    Value: !GetAtt EmailSenderLambdaRole.Arn
+
+  MorningTriggerRuleName:
+    Description: Name of the morning trigger rule
+    Value: !Ref MorningTriggerRule
+
+  MiddayTriggerRuleName:
+    Description: Name of the midday trigger rule
+    Value: !Ref MiddayTriggerRule
+
+  AfternoonTriggerRuleName:
+    Description: Name of the afternoon trigger rule
+    Value: !Ref AfternoonTriggerRule 

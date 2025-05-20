@@ -1,0 +1,2 @@
+aws-lambda-powertools>=3.13.0
+dnspython>=2.4.2 
