@@ -205,6 +205,28 @@ Resources:
         - Arn: !GetAtt EmailSenderLambda.Arn
           Id: EmailSenderAfternoon
 
+  MidMorningTriggerRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub 'email-sender-midmorning-${Environment}'
+      Description: Trigger email sender at 10:30am UK time
+      ScheduleExpression: cron(30 9 * * ? *)  # 9:30am UTC (9:30am GMT, 10:30am BST)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt EmailSenderLambda.Arn
+          Id: EmailSenderMidMorning
+
+  MidAfternoonTriggerRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub 'email-sender-midafternoon-${Environment}'
+      Description: Trigger email sender at 3pm UK time
+      ScheduleExpression: cron(0 14 * * ? *)  # 2pm UTC (2pm GMT, 3pm BST)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt EmailSenderLambda.Arn
+          Id: EmailSenderMidAfternoon
+
   # Permission for EventBridge to invoke Lambda
   MorningTriggerPermission:
     Type: AWS::Lambda::Permission
@@ -229,6 +251,22 @@ Resources:
       FunctionName: !Ref EmailSenderLambda
       Principal: events.amazonaws.com
       SourceArn: !GetAtt AfternoonTriggerRule.Arn
+
+  MidMorningTriggerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref EmailSenderLambda
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt MidMorningTriggerRule.Arn
+
+  MidAfternoonTriggerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref EmailSenderLambda
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt MidAfternoonTriggerRule.Arn
 
 Outputs:
   EmailListsBucketName:
@@ -265,4 +303,12 @@ Outputs:
 
   AfternoonTriggerRuleName:
     Description: Name of the afternoon trigger rule
-    Value: !Ref AfternoonTriggerRule 
+    Value: !Ref AfternoonTriggerRule
+
+  MidMorningTriggerRuleName:
+    Description: Name of the mid-morning trigger rule
+    Value: !Ref MidMorningTriggerRule
+
+  MidAfternoonTriggerRuleName:
+    Description: Name of the mid-afternoon trigger rule
+    Value: !Ref MidAfternoonTriggerRule 
