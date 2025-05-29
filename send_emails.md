@@ -1,111 +1,71 @@
-# Email Sender Script Documentation
+# Email Sender Lambda Documentation
 
 ## Overview
-The `send_emails.py` script is designed to send personalized HTML emails to a list of recipients using Amazon SES SMTP service. It supports event-specific customization, includes a skip list feature to exclude certain email addresses, and provides tracking of email processing status. The email subject is automatically extracted from the template's h1 tag, ensuring consistency between the email content and subject line.
+The Email Sender Lambda function sends personalized HTML emails to a list of recipients using Amazon SES. It is triggered automatically by AWS EventBridge on a defined schedule. The function supports event-specific customization, a skip list to exclude certain email addresses, and tracks email processing status in the source CSV file stored in S3. The email subject is automatically extracted from the template's h1 tag, ensuring consistency between the email content and subject line.
 
-## Prerequisites
+## Trigger Schedule (UTC)
+The Lambda is triggered by EventBridge at the following times:
+- 6:00am
+- 8:00am
+- 9:30am
+- 11:00am
+- 1:00pm
+- 3:00pm
+- 5:00pm
 
-### Environment Variables
-Create a `.env` file with the following credentials:
-```
-SMTP_USERNAME=your_ses_smtp_username
-SMTP_PASSWORD=your_ses_smtp_password
-```
+## Environment Variables (Configured in Lambda)
+- `SENDER_EMAIL`: Sender email address (e.g., contact@riseportraits.co.uk)
+- `EMAIL_LIST_KEY`: S3 key for the email list CSV file
+- `SKIP_LIST_KEY`: S3 key for the skip list CSV file
+- `TEMPLATE_KEY`: S3 key for the HTML email template
+- `EMAIL_SEND_LIMIT`: Maximum number of emails to send per execution
 
-### Required Python Packages
-```
-pandas
-python-dotenv
-```
+## S3 Structure
+- **Email List CSV**: Stored in the `riseportraits-email-lists` bucket
+- **Skip List CSV**: Stored in the `riseportraits-email-lists` bucket
+- **HTML Template**: Stored in the `riseportraits-email-templates` bucket
 
-### Required Files
-1. **Email List CSV** - Contains recipient information
-   - Required column: `email`
-   - Optional column: `event` (if using event-specific customization)
-   - Auto-generated tracking columns:
-     - `sent_status`: Records processing status ('sent', 'skipped', or 'failed')
-     - `send_date`: Records processing date/time in UK format (DD/MM/YYYY HH:MM:SS)
+### Email List CSV Columns
+- `email`: Recipient email address (required)
+- `event`: Event name for email customization (optional, required if template uses `{event}`)
+- `sent_status`: Processing status ('sent', 'skipped', or 'failed')
+- `send_date`: Date/time of processing in UK format (DD/MM/YYYY HH:MM:SS)
 
-2. **Skip List CSV** - Contains emails to exclude
-   - Required column: `email`
+### Skip List CSV Columns
+- `email`: Email addresses to exclude from sending
 
-3. **HTML Template** - Located at `./templates/*.html`
-   - Must include h1 tag containing the email subject
-   - Can include `{event}` placeholder in both subject and body
-   - Example:
-     ```html
-     <h1>Beautiful Memories of Every Tumble, Stretch, and Smile at {event}!</h1>
-     ```
-
-## Configuration
-- SMTP Server: email-smtp.eu-west-2.amazonaws.com
-- SMTP Port: 465
-- Sender Email: contact@example.co.uk
-- Subject: Automatically extracted from template h1 tag (can be overridden in code)
-
-## Usage
-
-```bash
-python send_emails.py [limit] [email_list] [skip_list]
-```
-
-### Arguments
-- `limit`: Maximum number of emails to process in this execution
-- `email_list`: Path to the CSV file containing recipient emails
-- `skip_list`: Path to the CSV file containing emails to exclude
-
-### Example
-```bash
-python send_emails.py 50 ./addresses/recipients.csv ./addresses/skip_list.csv
-```
-
-## Process Flow
-1. Loads environment variables
-2. Reads HTML template
-3. Loads and validates email list and skip list
-4. Identifies unprocessed emails (empty tracking fields)
-5. Filters out skipped emails
-6. Applies processing limit
-7. Displays summary and requests confirmation
-8. Processes emails up to the specified limit
-9. Updates tracking information
-10. Provides progress updates and final summary
+### HTML Template
+- Must include an `<h1>` tag containing the email subject
+- Can include `{event}` placeholder in both subject and body
+- Example:
+  ```html
+  <h1>Beautiful Memories of Every Tumble, Stretch, and Smile at {event}!</h1>
+  ```
 
 ## Processing Logic
-- Only processes records with empty tracking fields
-- Processes up to the specified limit in each execution
-- Updates tracking information only for processed records
-- Maintains processing history in the original CSV file
+- Loads the email list and skip list from S3
+- Skips emails in the skip list, marks them as 'skipped' in the CSV
+- Sends up to `EMAIL_SEND_LIMIT` emails per run
+- Marks each email as 'sent', 'skipped', or 'failed' in the CSV, and updates the file in S3
+- Supports `{event}` placeholder in the template and subject (requires `event` column in CSV)
+- Only processes records with empty `sent_status`
+- Processing date/time is recorded in UK format
 
 ## Error Handling
-- Validates template and CSV files before sending
-- Checks for required columns in CSV files
-- Verifies template placeholder compatibility
-- Individual email sending failures don't stop the entire process
-- Provides detailed error messages for troubleshooting
+- Errors are logged using AWS Lambda Powertools
+- Failed sends are marked as 'failed' in the CSV, and the process continues for other emails
+- If the template contains `{event}` but the CSV lacks an `event` column, the function raises an error
 
 ## Output
-The script provides detailed console output including:
-- Total number of emails in the list
-- Number of unprocessed emails
-- Number of emails in skip list
-- Number of emails to be processed in this execution
-- Processing limit
-- Real-time sending status for each email
-- Number of remaining unprocessed emails
-- Final summary of successful sends
+- The Lambda returns a JSON response with the number of emails sent, skipped, and total processed
+- Processing status and dates are preserved in the source CSV file in S3
 
-## Security Features
-- Uses SMTP_SSL for secure connection
-- Credentials loaded from environment variables
-- Skip list functionality to prevent duplicate sends
-- Confirmation prompt before sending
+## Security & Best Practices
+- Uses AWS SES for sending emails (no SMTP credentials required in Lambda)
+- All sensitive configuration is managed via environment variables
+- S3 buckets are encrypted and access is restricted via IAM roles
 
 ## Notes
-- The script uses Amazon SES SMTP interface
-- HTML template must be UTF-8 encoded
-- Email subject is extracted from template's h1 tag
-- Event customization applies to both subject and body
-- Failed email sends are logged but don't stop the process
-- Processing status and dates are preserved in the source CSV file
-- Script automatically resumes from the first unprocessed record in each execution 
+- The Lambda function is deployed and managed via CloudFormation (`lambda/infrastructure/templates/email-sender.yaml`)
+- The function is written in Python 3.12 and uses only standard libraries and AWS SDK (boto3)
+- For test scenarios and local development, see the test suite in `/tests` and the Lambda source in `/lambda/src/lambda_function.py` 

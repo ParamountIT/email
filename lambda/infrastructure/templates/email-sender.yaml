@@ -194,17 +194,6 @@ Resources:
         - Arn: !GetAtt EmailSenderLambda.Arn
           Id: EmailSenderMidday
 
-  AfternoonTriggerRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: !Sub 'email-sender-afternoon-${Environment}'
-      Description: Trigger email sender at 4pm UK time
-      ScheduleExpression: cron(0 16 * * ? *)  # 4pm UTC (4pm GMT, 5pm BST)
-      State: ENABLED
-      Targets:
-        - Arn: !GetAtt EmailSenderLambda.Arn
-          Id: EmailSenderAfternoon
-
   MidMorningTriggerRule:
     Type: AWS::Events::Rule
     Properties:
@@ -216,16 +205,49 @@ Resources:
         - Arn: !GetAtt EmailSenderLambda.Arn
           Id: EmailSenderMidMorning
 
-  MidAfternoonTriggerRule:
+  SixAmTriggerRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub 'email-sender-midafternoon-${Environment}'
-      Description: Trigger email sender at 3pm UK time
-      ScheduleExpression: cron(0 14 * * ? *)  # 2pm UTC (2pm GMT, 3pm BST)
+      Name: !Sub 'email-sender-6am-${Environment}'
+      Description: Trigger email sender at 6am UTC
+      ScheduleExpression: cron(0 6 * * ? *)
       State: ENABLED
       Targets:
         - Arn: !GetAtt EmailSenderLambda.Arn
-          Id: EmailSenderMidAfternoon
+          Id: EmailSenderSixAm
+
+  OnePmTriggerRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub 'email-sender-1pm-${Environment}'
+      Description: Trigger email sender at 1pm UTC
+      ScheduleExpression: cron(0 13 * * ? *)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt EmailSenderLambda.Arn
+          Id: EmailSenderOnePm
+
+  ThreePmTriggerRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub 'email-sender-3pm-${Environment}'
+      Description: Trigger email sender at 3pm UTC
+      ScheduleExpression: cron(0 15 * * ? *)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt EmailSenderLambda.Arn
+          Id: EmailSenderThreePm
+
+  FivePmTriggerRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub 'email-sender-5pm-${Environment}'
+      Description: Trigger email sender at 5pm UTC
+      ScheduleExpression: cron(0 17 * * ? *)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt EmailSenderLambda.Arn
+          Id: EmailSenderFivePm
 
   # Permission for EventBridge to invoke Lambda
   MorningTriggerPermission:
@@ -244,14 +266,6 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt MiddayTriggerRule.Arn
 
-  AfternoonTriggerPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref EmailSenderLambda
-      Principal: events.amazonaws.com
-      SourceArn: !GetAtt AfternoonTriggerRule.Arn
-
   MidMorningTriggerPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -260,13 +274,37 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt MidMorningTriggerRule.Arn
 
-  MidAfternoonTriggerPermission:
+  SixAmTriggerPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Ref EmailSenderLambda
       Principal: events.amazonaws.com
-      SourceArn: !GetAtt MidAfternoonTriggerRule.Arn
+      SourceArn: !GetAtt SixAmTriggerRule.Arn
+
+  OnePmTriggerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref EmailSenderLambda
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt OnePmTriggerRule.Arn
+
+  ThreePmTriggerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref EmailSenderLambda
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ThreePmTriggerRule.Arn
+
+  FivePmTriggerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref EmailSenderLambda
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt FivePmTriggerRule.Arn
 
 Outputs:
   EmailListsBucketName:
@@ -301,14 +339,22 @@ Outputs:
     Description: Name of the midday trigger rule
     Value: !Ref MiddayTriggerRule
 
-  AfternoonTriggerRuleName:
-    Description: Name of the afternoon trigger rule
-    Value: !Ref AfternoonTriggerRule
-
   MidMorningTriggerRuleName:
     Description: Name of the mid-morning trigger rule
     Value: !Ref MidMorningTriggerRule
 
-  MidAfternoonTriggerRuleName:
-    Description: Name of the mid-afternoon trigger rule
-    Value: !Ref MidAfternoonTriggerRule 
+  SixAmTriggerRuleName:
+    Description: Name of the 6am trigger rule
+    Value: !Ref SixAmTriggerRule
+
+  OnePmTriggerRuleName:
+    Description: Name of the 1pm trigger rule
+    Value: !Ref OnePmTriggerRule
+
+  ThreePmTriggerRuleName:
+    Description: Name of the 3pm trigger rule
+    Value: !Ref ThreePmTriggerRule
+
+  FivePmTriggerRuleName:
+    Description: Name of the 5pm trigger rule
+    Value: !Ref FivePmTriggerRule 
