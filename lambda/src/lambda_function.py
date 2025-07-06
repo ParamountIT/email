@@ -31,7 +31,9 @@ class EmailSender:
         # Load template
         self.html_template = self._load_template_from_s3()
         self.subject_template = self._extract_subject_from_template(self.html_template)
-        self.event_placeholder_in_template = "{event}" in self.html_template
+        
+        # Extract all placeholders from template and subject
+        self.template_placeholders = self._extract_template_placeholders()
 
     def _load_template_from_s3(self):
         try:
@@ -56,10 +58,10 @@ class EmailSender:
                 if not row.get('sent_status') or row['sent_status'] == ''
             ]
             
-            # Check event column
-            event_column_present = "event" in email_data[0].keys() if email_data else False
-            if self.event_placeholder_in_template and not event_column_present:
-                raise ValueError("Template contains {event} placeholder but CSV is missing event column")
+            # Validate template placeholders against CSV columns
+            if email_data:
+                csv_columns = set(email_data[0].keys())
+                self._validate_template_placeholders(csv_columns)
             
             # Process emails
             current_time = datetime.now()
@@ -87,8 +89,7 @@ class EmailSender:
             
             # Send emails
             for row in to_process:
-                event_name = row.get("event") if event_column_present else None
-                if self.send_email(row["email"], event_name):
+                if self.send_email(row["email"], row):
                     emails_sent += 1
                     row['sent_status'] = "sent"
                     row['send_date'] = uk_date_format
@@ -118,7 +119,7 @@ class EmailSender:
                 })
             }
 
-    def send_email(self, recipient_email, event_name=None):
+    def send_email(self, recipient_email, row_data):
         try:
             # Validate email using standard library
             _, addr = parseaddr(recipient_email)
@@ -126,17 +127,14 @@ class EmailSender:
                 logger.error(f"Invalid email address format: {recipient_email}")
                 return False
             
-            # Prepare subject and body
+            # Prepare subject and body with dynamic placeholder replacement
             subject = self.subject_template or "Email from Rise Portraits"
             html_body = self.html_template
 
-            if event_name and subject:
-                subject = subject.format(event=event_name) if "{event}" in subject else subject
-                html_body = html_body.replace("{event}", event_name)
-            else:
-                if subject:
-                    subject = re.sub(r"\{event\}", "", subject)
-                html_body = html_body.replace("{event}", "")
+            # Replace all placeholders dynamically
+            if self.template_placeholders:
+                subject = self._replace_template_placeholders(subject, row_data)
+                html_body = self._replace_template_placeholders(html_body, row_data)
 
             # Send email using SES
             response = self.ses_client.send_email(
@@ -156,7 +154,9 @@ class EmailSender:
                 }
             )
             
-            logger.info(f"Email sent to {recipient_email}")
+            # Log the placeholders that were replaced for debugging
+            replaced_placeholders = {p: row_data.get(p, '') for p in self.template_placeholders}
+            logger.info(f"Email sent to {recipient_email} with placeholders: {replaced_placeholders}")
             return True
             
         except Exception as e:
@@ -230,6 +230,50 @@ class EmailSender:
             
         # Return default subject if nothing found
         return "Email from Rise Portraits"
+
+    def _extract_template_placeholders(self):
+        """Extract all {placeholder} patterns from both subject and body templates"""
+        placeholders = set()
+        
+        # Find placeholders in HTML template
+        html_placeholders = re.findall(r'\{(\w+)\}', self.html_template)
+        placeholders.update(html_placeholders)
+        
+        # Find placeholders in subject template if it exists
+        if self.subject_template:
+            subject_placeholders = re.findall(r'\{(\w+)\}', self.subject_template)
+            placeholders.update(subject_placeholders)
+        
+        return placeholders
+
+    def _validate_template_placeholders(self, csv_columns):
+        """Validate that all template placeholders have corresponding CSV columns"""
+        # Exclude system columns from validation
+        system_columns = {'email', 'sent_status', 'send_date'}
+        available_columns = set(csv_columns) - system_columns
+        
+        missing_columns = self.template_placeholders - available_columns
+        
+        if missing_columns:
+            missing_list = ", ".join(sorted(missing_columns))
+            available_list = ", ".join(sorted(available_columns))
+            raise ValueError(
+                f"Template contains placeholders {{{missing_list}}} but CSV is missing these columns. "
+                f"Available CSV columns: {available_list}"
+            )
+        
+        logger.info(f"Template validation successful. Placeholders: {sorted(self.template_placeholders)}")
+
+    def _replace_template_placeholders(self, template_text, row_data):
+        """Replace all placeholders in template text with corresponding row data"""
+        result = template_text
+        
+        for placeholder in self.template_placeholders:
+            placeholder_pattern = '{' + placeholder + '}'
+            replacement_value = row_data.get(placeholder, '')
+            result = result.replace(placeholder_pattern, str(replacement_value))
+        
+        return result
 
 @logger.inject_lambda_context
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:

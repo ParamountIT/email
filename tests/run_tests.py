@@ -2,6 +2,7 @@ import os
 import shutil
 import unittest
 import pandas as pd
+import json
 from datetime import datetime
 from unittest.mock import Mock, patch
 from .smtp_test_server import TestSMTPServer
@@ -297,11 +298,11 @@ class LambdaFunctionImprovementTests(unittest.TestCase):
                     'Body': Mock(read=Mock(return_value=template_with_placeholder.encode()))
                 }
                 sender = LambdaEmailSender()
-                result = sender.send_email('test@example.com', 'Summer Camp 2024')
+                result = sender.send_email('test@example.com', {'event': 'Summer Camp 2024'})
                 self.assertTrue(result, "Should succeed with event placeholder and event provided")
                 
                 # Test 2: Template with placeholder, no event provided
-                result = sender.send_email('test@example.com', None)
+                result = sender.send_email('test@example.com', {'event': ''})
                 self.assertTrue(result, "Should succeed with event placeholder but no event")
                 
                 # Test 3: Template without placeholder, event provided
@@ -309,12 +310,117 @@ class LambdaFunctionImprovementTests(unittest.TestCase):
                     'Body': Mock(read=Mock(return_value=template_no_placeholder.encode()))
                 }
                 sender = LambdaEmailSender()
-                result = sender.send_email('test@example.com', 'Summer Camp 2024')
+                result = sender.send_email('test@example.com', {'event': 'Summer Camp 2024'})
                 self.assertTrue(result, "Should succeed with no placeholder but event provided")
                 
                 # Test 4: Template without placeholder, no event
-                result = sender.send_email('test@example.com', None)
+                result = sender.send_email('test@example.com', {'event': ''})
                 self.assertTrue(result, "Should succeed with no placeholder and no event")
+                
+    def test_dynamic_placeholder_validation(self):
+        """Test dynamic placeholder validation and replacement"""
+        
+        # Test template with multiple placeholders
+        template_with_multiple_placeholders = '''
+        <html>
+        <head><title>Welcome {name} to {club}!</title></head>
+        <body>
+            <h1>Hello {name}, welcome to {event} at {club}!</h1>
+            <p>We're excited to have you join us for {event} in {location}.</p>
+            <p>Your membership level: {level}</p>
+        </body>
+        </html>
+        '''
+        
+        # Test template with missing placeholders
+        template_missing_placeholders = '''
+        <html>
+        <head><title>Test Template</title></head>
+        <body>
+            <h1>Welcome {name} to {nonexistent_field}!</h1>
+            <p>Looking forward to {missing_column}.</p>
+        </body>
+        </html>
+        '''
+        
+        with patch('lambda_function.boto3.client') as mock_boto3:
+            mock_s3 = Mock()
+            mock_ses = Mock()
+            mock_boto3.side_effect = lambda service, **kwargs: mock_s3 if service == 's3' else mock_ses
+            
+            # Mock successful email send
+            mock_ses.send_email.return_value = {'MessageId': 'test-message-id'}
+            
+            with patch.dict(os.environ, {
+                'SENDER_EMAIL': 'test@example.com',
+                'EMAIL_LIST_KEY': 'test.csv',
+                'SKIP_LIST_KEY': 'skip.csv',
+                'TEMPLATE_KEY': 'template.html',
+                'EMAIL_SEND_LIMIT': '5'
+            }):
+                
+                # Test 1: Template with all matching placeholders
+                mock_s3.get_object.return_value = {
+                    'Body': Mock(read=Mock(return_value=template_with_multiple_placeholders.encode()))
+                }
+                
+                # Mock CSV data with all required columns
+                csv_data_complete = """email,name,club,event,location,level,sent_status,send_date
+test@example.com,John Doe,Sports Club,Summer Camp,London,Premium,,"""
+                
+                skip_csv_data = """email"""
+                
+                def mock_get_object_complete(Bucket, Key):
+                    if Key == 'test.csv':
+                        return {'Body': Mock(read=Mock(return_value=csv_data_complete.encode()))}
+                    elif Key == 'skip.csv':
+                        return {'Body': Mock(read=Mock(return_value=skip_csv_data.encode()))}
+                    elif Key == 'template.html':
+                        return {'Body': Mock(read=Mock(return_value=template_with_multiple_placeholders.encode()))}
+                
+                mock_s3.get_object.side_effect = mock_get_object_complete
+                mock_s3.put_object.return_value = {}
+                
+                # This should succeed - all placeholders have matching columns
+                sender = LambdaEmailSender()
+                result = sender.send_email('test@example.com', {
+                    'name': 'John Doe',
+                    'club': 'Sports Club', 
+                    'event': 'Summer Camp',
+                    'location': 'London',
+                    'level': 'Premium'
+                })
+                self.assertTrue(result, "Should succeed with all placeholders matched")
+                
+                # Test 2: Template with missing placeholder columns - should fail validation
+                mock_s3.get_object.return_value = {
+                    'Body': Mock(read=Mock(return_value=template_missing_placeholders.encode()))
+                }
+                
+                # Mock CSV data missing required columns
+                csv_data_incomplete = """email,name,sent_status,send_date
+test@example.com,John Doe,,"""
+                
+                def mock_get_object_incomplete(Bucket, Key):
+                    if Key == 'test.csv':
+                        return {'Body': Mock(read=Mock(return_value=csv_data_incomplete.encode()))}
+                    elif Key == 'skip.csv':
+                        return {'Body': Mock(read=Mock(return_value=skip_csv_data.encode()))}
+                    elif Key == 'template.html':
+                        return {'Body': Mock(read=Mock(return_value=template_missing_placeholders.encode()))}
+                
+                mock_s3.get_object.side_effect = mock_get_object_incomplete
+                
+                # This should fail with validation error
+                sender = LambdaEmailSender()
+                result = sender.process_email_list()
+                
+                # Should return error response instead of raising exception
+                self.assertEqual(result['statusCode'], 500)
+                error_body = json.loads(result['body'])
+                self.assertIn("missing these columns", error_body['error'])
+                self.assertIn("nonexistent_field", error_body['error'])
+                self.assertIn("missing_column", error_body['error'])
                 
     def test_multiple_real_templates(self):
         """Test Lambda function with multiple real-world templates"""
@@ -350,6 +456,11 @@ class LambdaFunctionImprovementTests(unittest.TestCase):
                 'name': 'Default fallback template',
                 'file': 'default_fallback_template.html',
                 'expected_subject': 'Email from Rise Portraits'
+            },
+            {
+                'name': 'Multi-placeholder template',
+                'file': 'multi_placeholder_template.html',
+                'expected_subject': 'Hello {name}, Welcome to {event}!'
             }
         ]
         
@@ -391,12 +502,14 @@ class LambdaFunctionImprovementTests(unittest.TestCase):
                             f"Failed for template: {template_test['name']}"
                         )
                         
-                        # Test sending email with event
-                        result = sender.send_email('test@example.com', 'Summer Championship 2024')
+                        # Test sending email with event data
+                        test_row = {'event': 'Summer Championship 2024', 'name': 'Test User', 'club': 'Test Club', 'location': 'Test Location', 'level': 'Premium', 'contact': 'Test Contact'}
+                        result = sender.send_email('test@example.com', test_row)
                         self.assertTrue(result, f"Email sending failed for template: {template_test['name']}")
                         
-                        # Test sending email without event
-                        result = sender.send_email('test@example.com', None)
+                        # Test sending email with minimal data
+                        minimal_row = {'event': '', 'name': '', 'club': '', 'location': '', 'level': '', 'contact': ''}
+                        result = sender.send_email('test@example.com', minimal_row)
                         self.assertTrue(result, f"Email sending without event failed for template: {template_test['name']}")
 
 if __name__ == '__main__':

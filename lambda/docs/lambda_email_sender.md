@@ -151,19 +151,29 @@ The function uses a multi-tier approach to extract email subjects from HTML temp
 ## CSV Format Specifications
 
 ### Email List CSV Format
-Required columns:
+**System columns (always required)**:
 - `email` (string): Recipient's email address
-- `event` (string, optional): Event name for template customization
 
-Auto-generated columns:
+**Auto-generated system columns**:
 - `sent_status` (string): One of ['sent', 'skipped', 'failed', '']
 - `send_date` (string): UK format date (DD/MM/YYYY HH:MM:SS)
 
-Example:
+**Dynamic data columns**:
+Any additional columns can be used as template placeholders. The Lambda function will automatically discover placeholders in your template and validate that corresponding CSV columns exist.
+
+Common examples:
+- `name` (string): Recipient's name
+- `event` (string): Event name
+- `club` (string): Club or organization name
+- `location` (string): Event location
+- `level` (string): Membership or skill level
+- `contact_person` (string): Contact information
+
+Example with multiple placeholders:
 ```csv
-email,event,sent_status,send_date
-john@example.com,Summer Gymnastics 2024,,
-jane@example.com,Winter Competition 2024,,
+email,name,event,club,location,level,sent_status,send_date
+john@example.com,John Smith,Summer Gymnastics 2024,Elite Gymnastics,London,Advanced,,
+jane@example.com,Jane Doe,Winter Competition 2024,City Sports,Birmingham,Beginner,,
 ```
 
 ### Skip List CSV Format
@@ -180,20 +190,28 @@ blocked@example.com
 ### CSV Processing Rules
 1. Email List CSV:
    - Must have at least the `email` column
-   - `event` column is required if template uses {event} placeholder
+   - **Dynamic validation**: All template placeholders must have corresponding CSV columns
+   - System columns (`email`, `sent_status`, `send_date`) are excluded from placeholder validation
    - `sent_status` and `send_date` are managed by the Lambda function
    - Empty `sent_status` indicates unprocessed records
    - Duplicate email addresses are not allowed
 
-2. Skip List CSV:
+2. Template-CSV Validation (New in v3.0):
+   - Lambda function scans template for ALL `{placeholder}` patterns
+   - Validates that each placeholder has a corresponding CSV column
+   - Fails with clear error message if any placeholders are missing
+   - Example: Template with `{name}` requires a `name` column in CSV
+
+3. Skip List CSV:
    - Must have exactly one column named `email`
    - No duplicate email addresses allowed
    - Case-insensitive email matching
 
-3. Data Validation:
+4. Data Validation:
    - Email addresses must be valid format
    - No empty email addresses allowed
    - No malformed CSV data allowed
+   - All placeholder data is converted to strings for template replacement
 
 ## Security Considerations
 
@@ -211,8 +229,50 @@ blocked@example.com
 
 ## Recent Improvements
 
-### Enhanced Template Processing (Latest Version)
-The Lambda function has been updated with several robustness improvements:
+### Dynamic Placeholder System (v3.0) - **MAJOR UPDATE**
+The Lambda function now features a completely redesigned placeholder system that automatically discovers and validates ALL placeholders in email templates:
+
+#### Universal Template Support
+- **Automatic discovery**: Scans both subject and body templates for ALL `{placeholder}` patterns
+- **Dynamic validation**: Validates that all discovered placeholders have corresponding CSV columns
+- **Flexible mapping**: Any CSV column can be used as a template placeholder
+- **System column exclusion**: Automatically excludes system columns (email, sent_status, send_date) from validation
+
+#### Validation and Error Handling
+- **Pre-execution validation**: Function fails gracefully if placeholders don't match CSV columns
+- **Clear error messages**: Specific details about missing columns and available alternatives
+- **Comprehensive logging**: Detailed information about which placeholders were replaced with what values
+
+#### Template Examples
+```html
+<!-- Template with multiple placeholders -->
+<html>
+  <head>
+    <title>Welcome {name} to {club} - {event}!</title>
+  </head>
+  <body>
+    <h1>Hello {name}, welcome to {event} at {club}!</h1>
+    <p>Location: {location}</p>
+    <p>Your membership level: {level}</p>
+    <p>Contact: {contact_person}</p>
+  </body>
+</html>
+```
+
+Required CSV columns for above template:
+```csv
+email,name,club,event,location,level,contact_person,sent_status,send_date
+john@example.com,John Doe,Sports Club,Summer Camp,London,Premium,Jane Smith,,
+```
+
+#### Benefits of v3.0
+- **No more hardcoded placeholders**: Works with any `{placeholder}` pattern
+- **Enhanced flexibility**: Easy to add new placeholders without code changes
+- **Better error prevention**: Validation prevents runtime failures
+- **Improved debugging**: Clear logs show exactly what data was replaced where
+
+### Enhanced Template Processing (v2.1)
+Previous improvements for robustness and compatibility:
 
 #### Subject Line Extraction
 - **Multi-tier fallback system**: H1 → Title → Default subject
