@@ -168,7 +168,7 @@ Resources:
           EMAIL_SEND_LIMIT: !Ref EmailSendLimit
       Code:
         S3Bucket: !Ref DeploymentBucket
-        S3Key: deployment-20240520-1.zip
+        S3Key: deployment-20250706-2033.zip
         S3ObjectVersion: !Ref 'AWS::NoValue'
 
   # EventBridge Rules for Lambda Triggers
