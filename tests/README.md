@@ -1,7 +1,7 @@
 # Email Sender Test Suite
 
 ## Overview
-This comprehensive test suite verifies both the original `EmailSender` class and the enhanced Lambda function's email sending functionality. The tests cover email processing state tracking, template customization, and advanced subject extraction capabilities. The suite uses a local SMTP debugging server to verify email sending without actually delivering emails.
+This comprehensive test suite verifies both the original `EmailSender` class and the enhanced Lambda function's email sending functionality. The tests cover email processing state tracking, template customization, advanced subject extraction capabilities, and the new dynamic placeholder system (v3.0). The suite uses a local SMTP debugging server to verify email sending without actually delivering emails, and mocked AWS services for Lambda function testing.
 
 ## Test Environment Setup
 1. Create and activate virtual environment:
@@ -31,10 +31,10 @@ The test suite uses:
 ### EmailSenderTests (Original - 6 tests)
 Tests the original email sender functionality with SMTP server integration.
 
-### LambdaFunctionImprovementTests (New - 3 tests)
-Tests the enhanced Lambda function with AWS service mocking and advanced subject extraction.
+### LambdaFunctionImprovementTests (New - 4 tests)
+Tests the enhanced Lambda function with AWS service mocking, advanced subject extraction, and dynamic placeholder validation.
 
-**Total Test Count: 9 tests**
+**Total Test Count: 10 tests**
 
 ## Test Scenarios
 
@@ -112,6 +112,16 @@ Tests the enhanced Lambda function with AWS service mocking and advanced subject
 - No runtime errors with malformed templates
 - Graceful handling of mixed placeholder scenarios
 
+#### Dynamic Placeholder Validation (New in v3.0)
+**Purpose**: Tests the dynamic placeholder discovery and validation system
+**Verifies**:
+- Automatic discovery of ALL `{placeholder}` patterns in templates
+- Dynamic validation that all placeholders have corresponding CSV columns
+- Clear error messages when placeholders don't match CSV columns
+- Successful replacement of multiple placeholders with CSV data
+- System column exclusion (email, sent_status, send_date) from validation
+- Enhanced logging showing which placeholders were replaced with what values
+
 ## Test Data Structure
 
 ### Email Template Structure
@@ -157,6 +167,7 @@ The test suite now supports multiple template formats:
 4. **`no_placeholder_template.html`** - Template without {event} placeholder
 5. **`h1_with_attributes_template.html`** - H1 with CSS classes/attributes
 6. **`default_fallback_template.html`** - No H1 or title tags
+7. **`multi_placeholder_template.html`** - Template with multiple placeholders for dynamic validation testing
 
 ## Running Tests
 
@@ -222,6 +233,28 @@ The `LambdaEmailSender` is configured with:
 - Null-safe operations to prevent runtime errors
 - Support for templates with and without placeholders
 
+### Dynamic Placeholder System (v3.0)
+- **Universal Discovery**: Automatically finds ALL `{placeholder}` patterns in templates
+- **Dynamic Validation**: Validates placeholders against CSV columns before processing
+- **Flexible Mapping**: Any CSV column can be used as a template placeholder
+- **System Column Exclusion**: Automatically excludes email, sent_status, send_date from validation
+- **Enhanced Error Handling**: Clear messages when placeholders don't match CSV columns
+- **Comprehensive Logging**: Detailed logs showing which placeholders were replaced with what values
+
+#### Supported Template Examples:
+```html
+<!-- Multiple placeholders in subject and body -->
+<title>Welcome {name} to {club} - {event}!</title>
+<h1>Hello {name}, Welcome to {event}!</h1>
+<p>Location: {location}, Level: {level}, Contact: {contact}</p>
+```
+
+#### Required CSV Structure:
+```csv
+email,name,club,event,location,level,contact,sent_status,send_date
+john@example.com,John Doe,Sports Club,Summer Camp,London,Premium,Jane Smith,,
+```
+
 ## Adding New Test Scenarios
 1. Create new test data files in `tests/data/scenario{N}/`
 2. Add new templates to `tests/templates/`
@@ -245,12 +278,13 @@ The `LambdaEmailSender` is configured with:
 - Keep AWS service mocking up to date with Lambda function changes
 
 ## Test Results Summary
-- **Total Tests**: 9
+- **Total Tests**: 10
 - **EmailSender Tests**: 6 (original functionality)
-- **Lambda Function Tests**: 3 (enhanced functionality)
-- **Templates Tested**: 6 different formats
+- **Lambda Function Tests**: 4 (enhanced functionality with dynamic placeholders)
+- **Templates Tested**: 7 different formats
 - **Subject Extraction Scenarios**: 5 fallback strategies
-- **Placeholder Handling**: 4 different scenarios
+- **Placeholder Handling**: Multiple scenarios including dynamic validation
+- **Dynamic Placeholder System**: Full validation and replacement testing
 
 ## Dependencies
 - `pandas`: CSV data manipulation
