@@ -127,14 +127,15 @@ class EmailSender:
                 return False
             
             # Prepare subject and body
-            subject = self.subject_template
+            subject = self.subject_template or "Email from Rise Portraits"
             html_body = self.html_template
 
-            if event_name:
-                subject = subject.format(event=event_name)
+            if event_name and subject:
+                subject = subject.format(event=event_name) if "{event}" in subject else subject
                 html_body = html_body.replace("{event}", event_name)
             else:
-                subject = re.sub(r"\{event\}", "", subject)
+                if subject:
+                    subject = re.sub(r"\{event\}", "", subject)
                 html_body = html_body.replace("{event}", "")
 
             # Send email using SES
@@ -217,8 +218,18 @@ class EmailSender:
             raise
 
     def _extract_subject_from_template(self, template_content):
-        match = re.search(r'<h1>(.*?)</h1>', template_content)
-        return match.group(1) if match else None
+        # Try to find subject in h1 tag first (with or without attributes)
+        match = re.search(r'<h1[^>]*>(.*?)</h1>', template_content, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+        
+        # Try to find subject in title tag as fallback
+        match = re.search(r'<title[^>]*>(.*?)</title>', template_content, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+            
+        # Return default subject if nothing found
+        return "Email from Rise Portraits"
 
 @logger.inject_lambda_context
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:

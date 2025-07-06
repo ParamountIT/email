@@ -59,15 +59,34 @@ The following environment variables are configured in the Lambda function:
 
 ### 2. Template Management
 - Load HTML templates from S3
-- Extract subject line from h1 tags
+- Extract subject line from h1 tags (with fallback to title tags)
+- Support H1 tags with attributes (classes, styles, etc.)
+- Case-insensitive HTML tag parsing
+- Provide default subject line when none found in template
 - Support {event} placeholder in both subject and body
+- Safe placeholder replacement with existence validation
 - Template customization based on event data
+
+#### Subject Extraction Logic
+The function uses a multi-tier approach to extract email subjects from HTML templates:
+
+1. **Primary**: Search for `<h1>` tags (with or without attributes) using case-insensitive matching
+2. **Fallback**: If no H1 found, search for `<title>` tags using the same approach
+3. **Default**: If neither found, use "Email from Rise Portraits" as the subject
+4. **Cleanup**: All extracted subjects are trimmed of whitespace
+
+#### Placeholder Handling
+- Safe {event} placeholder replacement that checks for placeholder existence before formatting
+- Graceful removal of unused placeholders when event data is not available
+- Null-safe operations to prevent runtime errors when templates are malformed
 
 ### 3. Email Sending
 - Use AWS SES directly
 - Support HTML email format
 - Handle email sending failures gracefully
-- Implement email validation using standard library
+- Implement robust email validation using standard library
+- Enhanced subject line processing with fallback mechanisms
+- Safe HTML template processing with error recovery
 
 ## State Management
 
@@ -81,6 +100,9 @@ The following environment variables are configured in the Lambda function:
 - Handle S3 access errors
 - Handle SES sending errors
 - Handle template processing errors
+- Robust subject line extraction with multiple fallback strategies
+- Safe placeholder replacement to prevent runtime errors
+- Graceful handling of missing or malformed template elements
 - Log errors to CloudWatch using aws-lambda-powertools
 
 ## Lambda Configuration
@@ -186,6 +208,29 @@ blocked@example.com
 - IAM role policies
 - SES sending authorization
 - CloudWatch log access
+
+## Recent Improvements
+
+### Enhanced Template Processing (Latest Version)
+The Lambda function has been updated with several robustness improvements:
+
+#### Subject Line Extraction
+- **Multi-tier fallback system**: H1 → Title → Default subject
+- **Attribute-aware parsing**: Handles `<h1 class="title">` and similar variations
+- **Case-insensitive matching**: Works with `<H1>`, `<h1>`, `<Title>`, etc.
+- **Text cleanup**: Automatic whitespace trimming from extracted subjects
+
+#### Error Prevention
+- **Null-safe operations**: Prevents crashes when templates are malformed
+- **Safe placeholder replacement**: Checks for placeholder existence before formatting
+- **Graceful degradation**: Continues processing even when template elements are missing
+- **Default value provisioning**: Provides sensible defaults when template parsing fails
+
+#### Benefits
+- **Increased reliability**: Fewer runtime errors and failed email sends
+- **Better template compatibility**: Works with various HTML template formats
+- **Improved user experience**: More predictable behavior with diverse template designs
+- **Reduced maintenance**: Less intervention needed for template-related issues
 
 ## Maintenance
 

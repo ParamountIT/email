@@ -3,8 +3,14 @@ import shutil
 import unittest
 import pandas as pd
 from datetime import datetime
+from unittest.mock import Mock, patch
 from .smtp_test_server import TestSMTPServer
 from send_emails import EmailSender
+
+# Import Lambda function for testing improvements
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lambda', 'src'))
+from lambda_function import EmailSender as LambdaEmailSender
 
 class EmailSenderTests(unittest.TestCase):
     @classmethod
@@ -147,6 +153,251 @@ class EmailSenderTests(unittest.TestCase):
             "Beautiful Memories of Every Tumble, Stretch, and Smile at Summer Competition 2024!",
             messages[0]['data']
         )
+
+class LambdaFunctionImprovementTests(unittest.TestCase):
+    """Test class for Lambda function improvements"""
+    
+    def test_enhanced_subject_extraction(self):
+        """Test enhanced subject extraction with fallback strategies"""
+        
+        # Test data for different HTML template scenarios
+        test_cases = [
+            # Test 1: H1 with attributes
+            {
+                'template': '''
+                <html>
+                <head><title>Fallback Title</title></head>
+                <body>
+                    <h1 class="email-title" id="subject">Subject from H1 with attrs</h1>
+                    <p>Content here</p>
+                </body>
+                </html>
+                ''',
+                'expected': 'Subject from H1 with attrs'
+            },
+            # Test 2: H1 with mixed case
+            {
+                'template': '''
+                <html>
+                <head><title>Fallback Title</title></head>
+                <body>
+                    <H1>Subject from Mixed Case H1</H1>
+                    <p>Content here</p>
+                </body>
+                </html>
+                ''',
+                'expected': 'Subject from Mixed Case H1'
+            },
+            # Test 3: No H1, fallback to title
+            {
+                'template': '''
+                <html>
+                <head><title>Subject from Title Tag</title></head>
+                <body>
+                    <p>No H1 tag here</p>
+                </body>
+                </html>
+                ''',
+                'expected': 'Subject from Title Tag'
+            },
+            # Test 4: Title with attributes
+            {
+                'template': '''
+                <html>
+                <head><title class="page-title">Subject from Title with attrs</title></head>
+                <body>
+                    <p>No H1 tag here</p>
+                </body>
+                </html>
+                ''',
+                'expected': 'Subject from Title with attrs'
+            },
+            # Test 5: Neither H1 nor title
+            {
+                'template': '''
+                <html>
+                <head></head>
+                <body>
+                    <p>No subject tags</p>
+                </body>
+                </html>
+                ''',
+                'expected': 'Email from Rise Portraits'
+            }
+        ]
+        
+        # Mock the AWS services and environment
+        with patch('lambda_function.boto3.client') as mock_boto3:
+            mock_s3 = Mock()
+            mock_ses = Mock()
+            mock_boto3.side_effect = lambda service, **kwargs: mock_s3 if service == 's3' else mock_ses
+            
+            with patch.dict(os.environ, {
+                'SENDER_EMAIL': 'test@example.com',
+                'EMAIL_LIST_KEY': 'test.csv',
+                'SKIP_LIST_KEY': 'skip.csv',
+                'TEMPLATE_KEY': 'template.html',
+                'EMAIL_SEND_LIMIT': '5'
+            }):
+                
+                for i, test_case in enumerate(test_cases):
+                    with self.subTest(test_case=i+1):
+                        # Mock S3 response with the test template
+                        mock_s3.get_object.return_value = {
+                            'Body': Mock(read=Mock(return_value=test_case['template'].encode()))
+                        }
+                        
+                        # Create Lambda EmailSender instance
+                        sender = LambdaEmailSender()
+                        
+                        # Verify the subject was extracted correctly
+                        self.assertEqual(sender.subject_template, test_case['expected'])
+                        
+    def test_safe_placeholder_replacement(self):
+        """Test safe placeholder replacement in Lambda function"""
+        
+        template_with_placeholder = '''
+        <html>
+        <head><title>Test for {event}</title></head>
+        <body>
+            <h1>Welcome to {event}!</h1>
+            <p>Join us for {event} activities</p>
+        </body>
+        </html>
+        '''
+        
+        template_no_placeholder = '''
+        <html>
+        <head><title>Test Email</title></head>
+        <body>
+            <h1>Welcome!</h1>
+            <p>Join us for activities</p>
+        </body>
+        </html>
+        '''
+        
+        with patch('lambda_function.boto3.client') as mock_boto3:
+            mock_s3 = Mock()
+            mock_ses = Mock()
+            mock_boto3.side_effect = lambda service, **kwargs: mock_s3 if service == 's3' else mock_ses
+            
+            # Mock successful email send
+            mock_ses.send_email.return_value = {'MessageId': 'test-message-id'}
+            
+            with patch.dict(os.environ, {
+                'SENDER_EMAIL': 'test@example.com',
+                'EMAIL_LIST_KEY': 'test.csv',
+                'SKIP_LIST_KEY': 'skip.csv',
+                'TEMPLATE_KEY': 'template.html',
+                'EMAIL_SEND_LIMIT': '5'
+            }):
+                
+                # Test 1: Template with placeholder, event provided
+                mock_s3.get_object.return_value = {
+                    'Body': Mock(read=Mock(return_value=template_with_placeholder.encode()))
+                }
+                sender = LambdaEmailSender()
+                result = sender.send_email('test@example.com', 'Summer Camp 2024')
+                self.assertTrue(result, "Should succeed with event placeholder and event provided")
+                
+                # Test 2: Template with placeholder, no event provided
+                result = sender.send_email('test@example.com', None)
+                self.assertTrue(result, "Should succeed with event placeholder but no event")
+                
+                # Test 3: Template without placeholder, event provided
+                mock_s3.get_object.return_value = {
+                    'Body': Mock(read=Mock(return_value=template_no_placeholder.encode()))
+                }
+                sender = LambdaEmailSender()
+                result = sender.send_email('test@example.com', 'Summer Camp 2024')
+                self.assertTrue(result, "Should succeed with no placeholder but event provided")
+                
+                # Test 4: Template without placeholder, no event
+                result = sender.send_email('test@example.com', None)
+                self.assertTrue(result, "Should succeed with no placeholder and no event")
+                
+    def test_multiple_real_templates(self):
+        """Test Lambda function with multiple real-world templates"""
+        
+        # Define test templates and their expected subjects
+        template_tests = [
+            {
+                'name': 'Original gymnastics template',
+                'file': 'test_template.html',
+                'expected_subject': 'Beautiful Memories of Every Tumble, Stretch, and Smile at {event}!'
+            },
+            {
+                'name': 'Football template (from root)',
+                'file': 'football_template.html',
+                'expected_subject': '📸 Capture the Energy, Skill, and Joy of Your Junior Football Stars at {event}!'
+            },
+            {
+                'name': 'Title fallback template',
+                'file': 'title_fallback_template.html',
+                'expected_subject': 'Professional Photography Services for {event}'
+            },
+            {
+                'name': 'No placeholder template',
+                'file': 'no_placeholder_template.html',
+                'expected_subject': 'Rise Portraits - Professional Sports Photography'
+            },
+            {
+                'name': 'H1 with attributes template',
+                'file': 'h1_with_attributes_template.html',
+                'expected_subject': 'Amazing Basketball Action at {event}!'
+            },
+            {
+                'name': 'Default fallback template',
+                'file': 'default_fallback_template.html',
+                'expected_subject': 'Email from Rise Portraits'
+            }
+        ]
+        
+        with patch('lambda_function.boto3.client') as mock_boto3:
+            mock_s3 = Mock()
+            mock_ses = Mock()
+            mock_boto3.side_effect = lambda service, **kwargs: mock_s3 if service == 's3' else mock_ses
+            
+            # Mock successful email send
+            mock_ses.send_email.return_value = {'MessageId': 'test-message-id'}
+            
+            with patch.dict(os.environ, {
+                'SENDER_EMAIL': 'test@example.com',
+                'EMAIL_LIST_KEY': 'test.csv',
+                'SKIP_LIST_KEY': 'skip.csv',
+                'TEMPLATE_KEY': 'template.html',
+                'EMAIL_SEND_LIMIT': '5'
+            }):
+                
+                for template_test in template_tests:
+                    with self.subTest(template=template_test['name']):
+                        # Read the actual template file
+                        template_path = os.path.join('tests', 'templates', template_test['file'])
+                        with open(template_path, 'r', encoding='utf-8') as f:
+                            template_content = f.read()
+                        
+                        # Mock S3 response with the template
+                        mock_s3.get_object.return_value = {
+                            'Body': Mock(read=Mock(return_value=template_content.encode()))
+                        }
+                        
+                        # Create Lambda EmailSender instance
+                        sender = LambdaEmailSender()
+                        
+                        # Verify the subject was extracted correctly
+                        self.assertEqual(
+                            sender.subject_template, 
+                            template_test['expected_subject'],
+                            f"Failed for template: {template_test['name']}"
+                        )
+                        
+                        # Test sending email with event
+                        result = sender.send_email('test@example.com', 'Summer Championship 2024')
+                        self.assertTrue(result, f"Email sending failed for template: {template_test['name']}")
+                        
+                        # Test sending email without event
+                        result = sender.send_email('test@example.com', None)
+                        self.assertTrue(result, f"Email sending without event failed for template: {template_test['name']}")
 
 if __name__ == '__main__':
     unittest.main(verbosity=2) 
